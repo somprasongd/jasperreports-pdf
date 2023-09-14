@@ -3,6 +3,7 @@ package com.github.somprasongd.jasperreports.pdf.service;
 import com.github.somprasongd.jasperreports.pdf.dto.JasperDto;
 import com.github.somprasongd.jasperreports.pdf.dto.ParameterDto;
 import com.github.somprasongd.jasperreports.pdf.dto.ReportDto;
+import com.github.somprasongd.jasperreports.pdf.exception.ReportGenerationException;
 import net.sf.jasperreports.engine.*;
 import net.sf.jasperreports.engine.util.JRLoader;
 import net.sf.jasperreports.engine.util.JRSaver;
@@ -57,7 +58,7 @@ public class ReportService {
 
     }
 
-    public JasperPrint generateReport(ReportDto reportDto) throws IOException, JRException {
+    public JasperPrint generateReport(ReportDto reportDto) {
 
         JasperDto mainReport = reportDto.getMainReport();
 
@@ -69,7 +70,12 @@ public class ReportService {
         if (new File(mainJasperPath).exists()) {
             mainJasperReport = loadJasperReport(mainJasperPath);
         } else {
-            mainJasperReport = compileReport(mainReport.getUrl(), mainJasperPath);
+            try {
+                mainJasperReport = compileReport(mainReport.getUrl(), mainJasperPath);
+            } catch (IOException | JRException e) {
+                logger.error("Failed to generate the report", e);
+                throw new ReportGenerationException("Failed to generate the report", e);
+            }
         }
 
         // compile sub report to .jasper
@@ -86,7 +92,12 @@ public class ReportService {
                     }
                 } else {
                     // compile and save
-                    compileReport(subReport.getUrl(), subJasperPath);
+                    try {
+                        compileReport(subReport.getUrl(), subJasperPath);
+                    } catch (IOException | JRException e) {
+                        logger.error("Failed to generate the sub-report", e);
+                        throw new ReportGenerationException("Failed to generate the sub-report", e);
+                    }
                 }
             }
         }
@@ -111,17 +122,15 @@ public class ReportService {
             }
             params.put("SUBREPORT_DIR", parentPath + File.separator);
             logger.info("Parameters for " + mainReport.getName() + ":");
-//            System.out.println("Parameters for " + mainReport.getName() + ":");
             for (String key :
                     params.keySet()) {
                 logger.info(key + ":" + params.get(key) + ":" + params.get(key).getClass());
-//                System.out.println(key + ":" + params.get(key) + ":" + params.get(key).getClass());
             }
             jasperPrint = JasperFillManager.fillReport(
                     mainJasperReport, params, conn);
-        } catch (SQLException throwables) {
-            throwables.printStackTrace();
-            return null;
+        } catch (Exception e) {
+            logger.error("Generate PDF failed", e);
+            throw new ReportGenerationException("Failed to generate pdf", e);
         }
         return jasperPrint;
     }
