@@ -14,7 +14,8 @@ services:
       - SPRING_DATASOURCE_IPD_JDBCURL=jdbc:postgresql://host.docker.internal:5432/ipd
       - SPRING_DATASOURCE_IPD_USERNAME=postgres
       - SPRING_DATASOURCE_IPD_PASSWORD=postgres
-#    volumes: # ถ้ารันหลาย containers ไว้ share .jasper
-#      - ./jaspers:/app/jaspers
+#    volumes:
+#      - ./jaspers:/app/jaspers # ถ้ารันหลาย containers ไว้ share .jasper
+#      - ./jrxmls:/app/jrxmls # ถ้ารันหลาย containers ไว้ share .jrxml
     healthcheck:
       test: curl -f http://127.0.0.1:8080/api/healthz
