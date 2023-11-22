@@ -33,6 +33,7 @@ public class ReportService {
 
     private final String JASPER_DIR = System.getProperty("user.dir") + File.separator + "jaspers";
     private final String JRXML_DIR = System.getProperty("user.dir") + File.separator + "jrxmls";
+    private final String IMG_DIR = System.getProperty("user.dir") + File.separator + "images";
     private final JdbcTemplate jdbcTemplateOPD; // Specify the desired JdbcTemplate
     private final JdbcTemplate jdbcTemplateIPD; // Specify the desired JdbcTemplate
 
@@ -122,9 +123,13 @@ public class ReportService {
                 if (param.getName().equalsIgnoreCase("SUBREPORT_DIR")) {
                     continue;
                 }
+                if (param.getName().equalsIgnoreCase("IMAGE_DIR")) {
+                    continue;
+                }
                 params.put(param.getName(), param.getConvertedValue());
             }
             params.put("SUBREPORT_DIR", parentPath + File.separator);
+            params.put("IMAGE_DIR", IMG_DIR + File.separator);
             logger.info("Parameters for " + mainReport.getName() + ":");
             for (String key :
                     params.keySet()) {

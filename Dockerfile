@@ -5,9 +5,10 @@ RUN apk add ttf-dejavu
 RUN addgroup -S spring && adduser -S spring -G spring
 USER spring:spring
 WORKDIR /app
-RUN mkdir jaspers && mkdir jrxmls
+RUN mkdir jaspers && mkdir jrxmls && mkdir images
 VOLUME /app/jaspers
 VOLUME /app/jrxmls
+VOLUME /app/images
 COPY ${JAR_FILE} app.jar
 
 ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar ./app.jar --spring.profiles.active=prod"]
