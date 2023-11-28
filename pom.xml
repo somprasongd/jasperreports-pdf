@@ -63,6 +63,13 @@
 			<systemPath>${project.basedir}/libs/hosos-jasperreports-font-1.0.0.jar</systemPath>
 		</dependency>
 		<dependency>
+			<groupId>com.hosos.util</groupId>
+			<artifactId>hospital-os-utils</artifactId>
+			<version>1.0.0</version>
+			<scope>system</scope>
+			<systemPath>${project.basedir}/libs/hospital-os-utils-1.0.0.jar</systemPath>
+		</dependency>
+		<dependency>
 			<groupId>com.google.zxing</groupId>
 			<artifactId>core</artifactId>
 			<version>3.4.1</version>
