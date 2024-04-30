@@ -1,5 +1,6 @@
 package com.github.somprasongd.jasperreports.pdf.dto;
 
+import com.github.somprasongd.jasperreports.pdf.util.DateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -39,41 +40,27 @@ public class ParameterDto {
             case ("number"):
                 return Double.parseDouble(value);
             case ("date"):
-                Date date = null;
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
-                try {
-                    date = sdf.parse(value);
-                } catch (ParseException e) {
-                    e.printStackTrace();
-                }
-                return date;
+                return DateTime.parseDate(value);
             case ("time"):
-                Date time = null;
-                SimpleDateFormat sdf2 = new SimpleDateFormat("HH:mm:ss", Locale.US);
-                try {
-                    time = sdf2.parse(value);
-                } catch (ParseException e) {
-                    e.printStackTrace();
+                Date tm = DateTime.parseTime(value);
+                if (tm == null) {
+                    return null;
                 }
-                return time;
+                // if use java.util.Date it will be cut time in query and set to 00:00:00
+                return new java.sql.Time(tm.getTime());
             case ("timestamp"):
-                Date dateTime = null;
-                SimpleDateFormat sdf3 = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
-                try {
-                    dateTime = sdf3.parse(value);
-                } catch (ParseException e) {
-                    e.printStackTrace();
+                Date dt = DateTime.parseRFC3339Date(value);
+                if (dt == null) {
+                    return null;
                 }
-                return dateTime;
+                // if use java.util.Date it will be cut time in query and set to 00:00:00
+                return new java.sql.Timestamp(dt.getTime());
             case ("bool"):
                 return Boolean.parseBoolean(value);
             case ("array_str"):
                 String[] values = value.split(",");
-                List<String> strs = new ArrayList<>();
-                for (String val :
-                        values) {
-                    strs.add(val);
-                }
+                List<String> strs = new ArrayList<String>();
+                Collections.addAll(strs, values);
                 return strs;
             case ("array_int"):
                 String[] values2 = value.split(",");

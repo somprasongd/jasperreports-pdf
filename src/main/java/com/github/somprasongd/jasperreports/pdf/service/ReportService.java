@@ -63,18 +63,30 @@ public class ReportService {
 
     }
 
+    private String removeFileExtension(String fileName) {
+        int idx = fileName.lastIndexOf(".");
+        if (idx != -1) { // Ensuring that a dot was found in the fileName
+            return fileName.substring(0, idx);
+        } else {
+            return fileName; // If no dot was found, return the original fileName
+        }
+    }
+
     public JasperPrint generateReport(ReportDto reportDto) {
 
         JasperDto mainReport = reportDto.getMainReport();
 
-        String parentPath = JASPER_DIR + File.separator + mainReport.getName();
+        String parentPath = JASPER_DIR + File.separator + removeFileExtension(mainReport.getName());
 
-        String mainJasperPath = parentPath + File.separator + mainReport.getName() + "." + mainReport.getModified_at() + ".jasper";
+        String mainJasperPath = parentPath + File.separator + removeFileExtension(mainReport.getName()) + "." + mainReport.getModified_at() + ".jasper";
 
+        boolean mainReportIsExists = new File(mainJasperPath).exists();
         JasperReport mainJasperReport = null;
-        if (new File(mainJasperPath).exists()) {
+        if (mainReportIsExists) {
             mainJasperReport = loadJasperReport(mainJasperPath);
-        } else {
+        }
+
+        if (mainJasperReport == null) {
             try {
                 mainJasperReport = compileReport(mainReport.getUrl(), mainJasperPath);
             } catch (Exception e) {
@@ -86,23 +98,30 @@ public class ReportService {
         // compile sub report to .jasper
         if (reportDto.getSubReports() != null) {
             for (JasperDto subReport : reportDto.getSubReports()) {
-                String subJasperPath = parentPath + File.separator + subReport.getName() + "." + subReport.getModified_at() + ".jasper";
+                String fileName = removeFileExtension(subReport.getName());
+                String subJasperFileVersionPrefix = fileName + ":";
+                String subJasperFileVersion = parentPath + File.separator + subJasperFileVersionPrefix + ":" + subReport.getModified_at();
+                String subJasperPath = parentPath + File.separator + fileName + ".jasper";
 
-                if (new File(subJasperPath).exists()) {
+                if (new File(subJasperFileVersion).exists()) {
                     // check is exist
                     JasperReport jr = loadJasperReport(subJasperPath);
                     // skip
                     if (jr != null) {
                         continue;
                     }
-                } else {
+                }
+
+                try {
+                    // remove early version
+                    deleteFilesWithPrefix(parentPath, subJasperFileVersionPrefix);
+                    // save new version
+                    createVersionFile(subJasperFileVersion);
                     // compile and save
-                    try {
-                        compileReport(subReport.getUrl(), subJasperPath);
-                    } catch (Exception e) {
-                        logger.error("Failed to generate the sub-report", e);
-                        throw new ReportGenerationException("Failed to generate the sub-report", e);
-                    }
+                    compileReport(subReport.getUrl(), subJasperPath);
+                } catch (Exception e) {
+                    logger.error("Failed to generate the sub-report", e);
+                    throw new ReportGenerationException("Failed to generate the sub-report", e);
                 }
             }
         }
@@ -197,6 +216,39 @@ public class ReportService {
         } catch (URISyntaxException e) {
             return false;
 
+        }
+    }
+
+    private void deleteFilesWithPrefix(String directoryPath, String prefix) {
+        File directory = new File(directoryPath);
+        File[] files = directory.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+                if (file.getName().startsWith(prefix)) {
+                    if (file.delete()) {
+                        logger.info("File deleted: " + file.getName());
+                    } else {
+                        logger.info("Failed to delete file: " + file.getName());
+                    }
+                }
+            }
+        } else {
+            logger.warn("Directory does not exist or is not a directory.");
+        }
+    }
+
+    private static void createVersionFile(String filePath) {
+        File file = new File(filePath);
+
+        try {
+            if (file.createNewFile()) {
+                logger.info("Empty file created successfully: " + file.getName());
+            } else {
+                logger.info("File already exists.");
+            }
+        } catch (IOException e) {
+            logger.error("An error occurred while creating the file: " + e.getMessage());
         }
     }
 }

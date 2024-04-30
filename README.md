@@ -11,11 +11,11 @@
 2. Build the Docker Image:
 
     ```bash
-    docker build -t your-docker-image-name .
+    docker build -t your-namespace/jasperreports-pdf:latest .
    
     # multiplatform
     # docker buildx create --use 
-    # docker buildx build --push --platform linux/amd64,linux/arm64 -t your-docker-image-name:latest .
+    # docker buildx build --push --platform linux/amd64,linux/arm64 -t your-namespace/jasperreports-pdf:latest .
     ```
 
 ## How to use
