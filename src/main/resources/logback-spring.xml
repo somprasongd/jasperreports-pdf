@@ -15,5 +15,10 @@
         <appender-ref ref="jsonConsoleAppender"/>
     </root>
 
+    <appender name="SENTRY" class="io.sentry.logback.SentryAppender" />
+    <root level="debug">
+        <appender-ref ref="SENTRY" />
+    </root>
+
 
 </configuration>

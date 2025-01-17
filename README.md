@@ -21,8 +21,9 @@
 ## How to use
 
 ```bash
-curl --location 'http://localhost:8080/api/v1/jasper/generate' \
+curl --location 'http://localhost:9090/api/v1/jasper/generate' \
 --header 'Content-Type: application/json' \
+--header 'sentry-trace: 7c6f8eae8f614f749ff5692f4568a5c7-98af56d21e1af55c-1' \
 --data '{
     "datasource": "opd",
     "mainReport": {

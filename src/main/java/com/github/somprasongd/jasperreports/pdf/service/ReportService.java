@@ -4,6 +4,9 @@ import com.github.somprasongd.jasperreports.pdf.dto.JasperDto;
 import com.github.somprasongd.jasperreports.pdf.dto.ParameterDto;
 import com.github.somprasongd.jasperreports.pdf.dto.ReportDto;
 import com.github.somprasongd.jasperreports.pdf.exception.ReportGenerationException;
+import io.sentry.ISpan;
+import io.sentry.Sentry;
+import io.sentry.SpanStatus;
 import net.sf.jasperreports.engine.*;
 import net.sf.jasperreports.engine.design.JasperDesign;
 import net.sf.jasperreports.engine.util.JRLoader;
@@ -23,6 +26,7 @@ import java.net.URL;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,32 +76,41 @@ public class ReportService {
         }
     }
 
-    public JasperPrint generateReport(ReportDto reportDto) {
+    private JasperReport loadMainReport(String parentPath, JasperDto mainReport, ISpan parentSpan) {
+        ISpan span = parentSpan.startChild("service.loadMainReport", "loading main report");
 
-        JasperDto mainReport = reportDto.getMainReport();
-
-        String parentPath = JASPER_DIR + File.separator + removeFileExtension(mainReport.getName());
-
-        String mainJasperPath = parentPath + File.separator + removeFileExtension(mainReport.getName()) + "." + mainReport.getModified_at() + ".jasper";
-
-        boolean mainReportIsExists = new File(mainJasperPath).exists();
         JasperReport mainJasperReport = null;
-        if (mainReportIsExists) {
-            mainJasperReport = loadJasperReport(mainJasperPath);
-        }
+        try {
+            String mainJasperPath = parentPath + File.separator + removeFileExtension(mainReport.getName()) + "." + mainReport.getModified_at() + ".jasper";
 
-        if (mainJasperReport == null) {
-            try {
-                mainJasperReport = compileReport(mainReport.getUrl(), mainJasperPath);
-            } catch (Exception e) {
-                logger.error("Failed to generate the report", e);
-                throw new ReportGenerationException("Failed to generate the report", e);
+            boolean mainReportIsExists = new File(mainJasperPath).exists();
+
+            if (mainReportIsExists) {
+                mainJasperReport = loadJasperReport(mainJasperPath);
             }
-        }
 
-        // compile sub report to .jasper
-        if (reportDto.getSubReports() != null) {
-            for (JasperDto subReport : reportDto.getSubReports()) {
+            if (mainJasperReport == null) {
+                mainJasperReport = compileReport(mainReport.getUrl(), mainJasperPath);
+            }
+        } catch (Exception ex) {
+            span.setStatus(SpanStatus.INTERNAL_ERROR);
+            Sentry.captureException(ex);
+            logger.error("Failed to generate the report", ex);
+            throw new ReportGenerationException("Failed to generate the report", ex);
+        } finally {
+            span.finish();
+        }
+        return mainJasperReport;
+    }
+
+    private void compileSubReports(String parentPath, List<JasperDto> subReports, ISpan parentSpan) {
+        if (subReports == null || subReports.isEmpty()) {
+            return;
+        }
+        ISpan span = parentSpan.startChild("service.compileSubReports", "compiling all sup-reports");
+
+        try {
+            for (JasperDto subReport : subReports) {
                 String fileName = removeFileExtension(subReport.getName());
                 String subJasperFileVersionPrefix = fileName + ":";
                 String subJasperFileVersion = parentPath + File.separator + subJasperFileVersionPrefix + ":" + subReport.getModified_at();
@@ -112,55 +125,186 @@ public class ReportService {
                     }
                 }
 
-                try {
-                    // remove early version
-                    deleteFilesWithPrefix(parentPath, subJasperFileVersionPrefix);
-                    // save new version
-                    createVersionFile(subJasperFileVersion);
-                    // compile and save
-                    compileReport(subReport.getUrl(), subJasperPath);
-                } catch (Exception e) {
-                    logger.error("Failed to generate the sub-report", e);
-                    throw new ReportGenerationException("Failed to generate the sub-report", e);
-                }
+                // remove early version
+                deleteFilesWithPrefix(parentPath, subJasperFileVersionPrefix);
+                // save new version
+                createVersionFile(subJasperFileVersion);
+                // compile and save
+                compileReport(subReport.getUrl(), subJasperPath);
             }
+        } catch (Exception ex) {
+            span.setStatus(SpanStatus.INTERNAL_ERROR);
+            Sentry.captureException(ex);
+            logger.error("Failed to generate the sub-report", ex);
+            throw new ReportGenerationException("Failed to generate the sub-report", ex);
+        } finally {
+            span.finish();
         }
+    }
 
+    private JasperPrint createPDF(String reportName, String datasourceName, String parentPath, JasperReport mainJasperReport, List<ParameterDto> parameters, ISpan parentSpan) {
+        ISpan span = parentSpan.startChild("service.createPDF", "creating PDF");
         // generate report
-        JasperPrint jasperPrint;
-        DataSource dataSource;
-        if (reportDto.getDatasource().equalsIgnoreCase("opd")) {
-            dataSource = jdbcTemplateOPD.getDataSource();
-        } else {
-            dataSource = jdbcTemplateIPD.getDataSource();
+        try {
+            JasperPrint jasperPrint;
+            DataSource dataSource;
+            if (datasourceName.equalsIgnoreCase("opd")) {
+                dataSource = jdbcTemplateOPD.getDataSource();
+            } else {
+                dataSource = jdbcTemplateIPD.getDataSource();
+            }
+
+            try (Connection conn = dataSource.getConnection()) {
+                Map<String, Object> params = new HashMap<>();
+                for (ParameterDto param :
+                        parameters) {
+                    if (param.getName().equalsIgnoreCase("SUBREPORT_DIR")) {
+                        continue;
+                    }
+                    if (param.getName().equalsIgnoreCase("IMAGE_DIR")) {
+                        continue;
+                    }
+                    params.put(param.getName(), param.getConvertedValue());
+                }
+                params.put("SUBREPORT_DIR", parentPath + File.separator);
+                params.put("IMAGE_DIR", IMG_DIR + File.separator);
+                logger.info("Parameters for " + reportName + ":");
+                for (String key :
+                        params.keySet()) {
+                    logger.info(key + ":" + params.get(key) + ":" + params.get(key).getClass());
+                }
+                jasperPrint = JasperFillManager.fillReport(
+                        mainJasperReport, params, conn);
+            }
+            return jasperPrint;
+        }catch (Exception ex) {
+            span.setStatus(SpanStatus.INTERNAL_ERROR);
+            Sentry.captureException(ex);
+            logger.error("Generate PDF failed", ex);
+            throw new ReportGenerationException("Failed to generate pdf", ex);
+        } finally {
+            span.finish();
+        }
+    }
+
+    public JasperPrint generateReport(ReportDto reportDto) {
+        // Retrieve the current span, if it exists
+        ISpan parentSpan = Sentry.getSpan();
+
+        // Create a new child span for this specific operation
+        ISpan operationSpan = parentSpan != null
+                ? parentSpan.startChild("service.generateReport", "Generating report")
+                : Sentry.startTransaction("service.generateReport", "Generating report");
+
+        try {
+            JasperDto mainReport = reportDto.getMainReport();
+
+            String parentPath = JASPER_DIR + File.separator + removeFileExtension(mainReport.getName());
+            JasperReport mainJasperReport = loadMainReport(parentPath, mainReport, operationSpan);
+
+            // compile sub report to .jasper
+            compileSubReports(parentPath, reportDto.getSubReports(), operationSpan);
+
+            return createPDF(mainReport.getName(),
+                    reportDto.getDatasource(),
+                    parentPath,
+                    mainJasperReport,
+                    reportDto.getParameters(),
+                    operationSpan);
+        }catch (Exception ex) {
+            throw ex;
+//            operationSpan.setStatus(SpanStatus.INTERNAL_ERROR);
+        } finally {
+            operationSpan.finish();
         }
 
-        try (Connection conn = dataSource.getConnection()) {
-            Map<String, Object> params = new HashMap<>();
-            for (ParameterDto param :
-                    reportDto.getParameters()) {
-                if (param.getName().equalsIgnoreCase("SUBREPORT_DIR")) {
-                    continue;
-                }
-                if (param.getName().equalsIgnoreCase("IMAGE_DIR")) {
-                    continue;
-                }
-                params.put(param.getName(), param.getConvertedValue());
-            }
-            params.put("SUBREPORT_DIR", parentPath + File.separator);
-            params.put("IMAGE_DIR", IMG_DIR + File.separator);
-            logger.info("Parameters for " + mainReport.getName() + ":");
-            for (String key :
-                    params.keySet()) {
-                logger.info(key + ":" + params.get(key) + ":" + params.get(key).getClass());
-            }
-            jasperPrint = JasperFillManager.fillReport(
-                    mainJasperReport, params, conn);
-        } catch (Exception e) {
-            logger.error("Generate PDF failed", e);
-            throw new ReportGenerationException("Failed to generate pdf", e);
-        }
-        return jasperPrint;
+//        JasperDto mainReport = reportDto.getMainReport();
+//
+//        String parentPath = JASPER_DIR + File.separator + removeFileExtension(mainReport.getName());
+//
+//        String mainJasperPath = parentPath + File.separator + removeFileExtension(mainReport.getName()) + "." + mainReport.getModified_at() + ".jasper";
+//
+//        boolean mainReportIsExists = new File(mainJasperPath).exists();
+//        JasperReport mainJasperReport = null;
+//        if (mainReportIsExists) {
+//            mainJasperReport = loadJasperReport(mainJasperPath);
+//        }
+//
+//        if (mainJasperReport == null) {
+//            try {
+//                mainJasperReport = compileReport(mainReport.getUrl(), mainJasperPath);
+//            } catch (Exception e) {
+//                logger.error("Failed to generate the report", e);
+//                throw new ReportGenerationException("Failed to generate the report", e);
+//            }
+//        }
+
+//        // compile sub report to .jasper
+//        if (reportDto.getSubReports() != null) {
+//            for (JasperDto subReport : reportDto.getSubReports()) {
+//                String fileName = removeFileExtension(subReport.getName());
+//                String subJasperFileVersionPrefix = fileName + ":";
+//                String subJasperFileVersion = parentPath + File.separator + subJasperFileVersionPrefix + ":" + subReport.getModified_at();
+//                String subJasperPath = parentPath + File.separator + fileName + ".jasper";
+//
+//                if (new File(subJasperFileVersion).exists()) {
+//                    // check is exist
+//                    JasperReport jr = loadJasperReport(subJasperPath);
+//                    // skip
+//                    if (jr != null) {
+//                        continue;
+//                    }
+//                }
+//
+//                try {
+//                    // remove early version
+//                    deleteFilesWithPrefix(parentPath, subJasperFileVersionPrefix);
+//                    // save new version
+//                    createVersionFile(subJasperFileVersion);
+//                    // compile and save
+//                    compileReport(subReport.getUrl(), subJasperPath);
+//                } catch (Exception e) {
+//                    logger.error("Failed to generate the sub-report", e);
+//                    throw new ReportGenerationException("Failed to generate the sub-report", e);
+//                }
+//            }
+//        }
+
+//        // generate report
+//        JasperPrint jasperPrint;
+//        DataSource dataSource;
+//        if (reportDto.getDatasource().equalsIgnoreCase("opd")) {
+//            dataSource = jdbcTemplateOPD.getDataSource();
+//        } else {
+//            dataSource = jdbcTemplateIPD.getDataSource();
+//        }
+//
+//        try (Connection conn = dataSource.getConnection()) {
+//            Map<String, Object> params = new HashMap<>();
+//            for (ParameterDto param :
+//                    reportDto.getParameters()) {
+//                if (param.getName().equalsIgnoreCase("SUBREPORT_DIR")) {
+//                    continue;
+//                }
+//                if (param.getName().equalsIgnoreCase("IMAGE_DIR")) {
+//                    continue;
+//                }
+//                params.put(param.getName(), param.getConvertedValue());
+//            }
+//            params.put("SUBREPORT_DIR", parentPath + File.separator);
+//            params.put("IMAGE_DIR", IMG_DIR + File.separator);
+//            logger.info("Parameters for " + mainReport.getName() + ":");
+//            for (String key :
+//                    params.keySet()) {
+//                logger.info(key + ":" + params.get(key) + ":" + params.get(key).getClass());
+//            }
+//            jasperPrint = JasperFillManager.fillReport(
+//                    mainJasperReport, params, conn);
+//        } catch (Exception e) {
+//            logger.error("Generate PDF failed", e);
+//            throw new ReportGenerationException("Failed to generate pdf", e);
+//        }
+//        return jasperPrint;
     }
 
     private JasperReport compileReport(String url, String jasperPath) throws Exception {
