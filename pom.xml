@@ -99,6 +99,16 @@
 			<artifactId>sentry-logback</artifactId>
 			<version>7.20.0</version>
 		</dependency>
+		<dependency>
+			<groupId>net.sf.jasperreports</groupId>
+			<artifactId>jasperreports-barbecue</artifactId>
+			<version>7.0.1</version>
+		</dependency>
+		<dependency>
+			<groupId>net.sf.jasperreports</groupId>
+			<artifactId>jasperreports-barcode4j</artifactId>
+			<version>7.0.1</version>
+		</dependency>
 	</dependencies>
 
 	<build>
