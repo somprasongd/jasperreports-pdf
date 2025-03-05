@@ -1,24 +1,48 @@
 <configuration>
 
+    <!-- Log pattern property -->
     <springProperty name="LOG_PATTERN" source="logging.pattern.console"
                     defaultValue="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
+
+    <!-- JSON Console Appender -->
     <appender name="jsonConsoleAppender" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <fieldNames>
                 <timestamp>timestamp</timestamp>
-                <version>version</version>
+                <level>level</level>
+                <logger>logger</logger>
+                <thread>thread</thread>
+                <message>message</message>
+                <stackTrace>stack_trace</stackTrace>
             </fieldNames>
             <timeZone>UTC</timeZone>
         </encoder>
     </appender>
+
+    <!-- Sentry Appender -->
+    <appender name="SENTRY" class="io.sentry.logback.SentryAppender">
+        <minimumEventLevel>WARN</minimumEventLevel>
+    </appender>
+
+    <!-- Root Logger (Log JSON to Console) -->
     <root level="INFO">
         <appender-ref ref="jsonConsoleAppender"/>
+        <appender-ref ref="SENTRY"/>
     </root>
 
-    <appender name="SENTRY" class="io.sentry.logback.SentryAppender" />
-    <root level="debug">
-        <appender-ref ref="SENTRY" />
-    </root>
+    <!-- Enable DEBUG for Spring Web (Requests) -->
+    <logger name="org.springframework.web" level="INFO"/>
+
+    <!-- Enable ERROR logs for Spring Boot startup errors -->
+    <logger name="org.springframework.boot" level="ERROR"/>
+
+    <!-- Enable SQL Query Logging -->
+    <logger name="com.zaxxer.hikari" level="DEBUG"/>
+    <logger name="java.sql" level="DEBUG"/>
+
+    <!-- Log Exceptions -->
+    <logger name="org.springframework.jdbc.core" level="DEBUG"/>
+    <logger name="org.springframework.jdbc.datasource" level="DEBUG"/>
 
 
 </configuration>
